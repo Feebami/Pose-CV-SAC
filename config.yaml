@@ -1,0 +1,48 @@
+# Number of vectorized environments
+num_envs: 16
+# ManiSkill environment id
+env_id: 'PickCube-v1'
+# RGB observation resolution
+resolution: 96
+# Camera position
+camera_position: [0.3, 0, 0.3]
+# Maximum stored experiences in the replay buffer
+buffer_size: 102_400
+# Buffer storage device
+buffer_device: 'cuda'
+# Priority buffer alpha
+buffer_alpha: 0.6
+# Total steps across all environments
+global_steps: 512_000
+# Bellman equation gamma parameter
+gamma: 0.8
+# Target Q-network soft update scale
+tau: 0.01
+# Learning rate for critic
+q_lr: 3e-4
+# Learning rate for actor
+a_lr: 3e-4
+# AdamW weight decay
+weight_decay:
+- 1e-4
+- 1e-3
+# Critic-actor update batch sample size
+batch_size: 128
+# Update-to-data ratio (160 env per step * 0.5 = 80 grad steps per env step)
+utd: 0.5
+# Pose estimation or position estimation
+pose: False
+
+########## Architecture ##########
+# Linear layer sizes of MLP for actor and critic
+mlp_layers: [256, 256, 256]
+# Blocks in MLP for actor and critic
+mlp_blocks: 1
+# Channel multiplier for rgbd observation encoding CNN
+channel_multiplier: 4
+# CNN kernel size
+kernel_size: 3
+# Max channel size of CNN
+max_channels: 128
+# Final encoding dimension of RGBD observation encoder
+encoding_dim: 256
