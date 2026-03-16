@@ -27,7 +27,7 @@ from torchvision.transforms import v2
 from tqdm import trange
 
 # Custom SAC components for RGB inputs
-from agent import Actor, SoftQ
+from .agent import Actor, SoftQ
 from common.trainer import SACTrainer
 
 # Set device to GPU if available, otherwise CPU

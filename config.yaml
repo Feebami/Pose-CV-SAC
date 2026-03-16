@@ -3,7 +3,7 @@ num_envs: 16
 # ManiSkill environment id
 env_id: 'PickCube-v1'
 # RGB observation resolution
-resolution: 96
+resolution: 256
 # Camera position
 camera_position: [0.3, 0, 0.3]
 # Maximum stored experiences in the replay buffer
@@ -31,15 +31,15 @@ batch_size: 128
 # Update-to-data ratio (160 env per step * 0.5 = 80 grad steps per env step)
 utd: 0.5
 # Pose estimation or position estimation
-pose: False
+pose: True
 
 ########## Architecture ##########
 # Linear layer sizes of MLP for actor and critic
-mlp_layers: [256, 256, 256]
+mlp_layers: [384, 384, 384]
 # Blocks in MLP for actor and critic
 mlp_blocks: 1
 # Channel multiplier for rgbd observation encoding CNN
-channel_multiplier: 4
+channel_multiplier: 8
 # CNN kernel size
 kernel_size: 3
 # Max channel size of CNN

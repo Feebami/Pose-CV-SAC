@@ -12,7 +12,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # Optimize for high precision matrix multiplications
 torch.set_float32_matmul_precision('high')
 
-def pose_loss(pred, target, pos_weight=1.0, rot_weight=0.1):
+def pose_loss(pred, target):
     pred_pos, pred_q = pred[..., :3], pred[..., 3:]
     tgt_pos, tgt_q = target[..., :3], target[..., 3:]
 
@@ -28,7 +28,7 @@ def pose_loss(pred, target, pos_weight=1.0, rot_weight=0.1):
     q_diff_2 = F.mse_loss(pred_q, -tgt_q, reduction='none').sum(-1)
     rot_loss = torch.mean(torch.minimum(q_diff_1, q_diff_2))
 
-    return pos_weight * pos_loss + rot_weight * rot_loss
+    return pos_loss, rot_loss
 
 
 class EarlyStopping:
@@ -131,7 +131,7 @@ class PoseEstimator(nn.Module):
         self.train()
         env = gym.make(
             self.config.env_id, 
-            num_envs=512, 
+            num_envs=1024, 
             obs_mode='state_dict+rgb', 
             control_mode='pd_ee_delta_pose', 
             reward_mode='normalized_dense',
@@ -150,13 +150,17 @@ class PoseEstimator(nn.Module):
             rgb = obs['sensor_data']['base_camera']['rgb']
             target = obs['extra']['obj_pose'] if self.config.pose else obs['extra']['obj_pose'][..., :3]
             pred = self(rgb)
-            loss_function = pose_loss if self.config.pose else F.mse_loss
-            loss = loss_function(pred, target)
+            if self.config.pose:
+                pos_loss, rot_loss = pose_loss(pred, target)
+                loss = pos_loss + 0.1 * rot_loss
+                print(f"Position Loss: {pos_loss.item():.6f}, Rotation Loss: {rot_loss.item():.6f}", end='\r')
+            else:
+                loss = F.mse_loss(pred, target)
+                print(f"Position Loss: {loss.item():.6f}", end='\r')
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step(loss)
-            print(f"Estimator Loss: {loss.item():.6f}", end='\r')
         env.close()
         self.eval()
         # Freeze estimator parameters after training
