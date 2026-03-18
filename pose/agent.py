@@ -131,7 +131,7 @@ class PoseEstimator(nn.Module):
         self.train()
         env = gym.make(
             self.config.env_id, 
-            num_envs=1024, 
+            num_envs=self.config.estimator_batch_size, 
             obs_mode='state_dict+rgb', 
             control_mode='pd_ee_delta_pose', 
             reward_mode='normalized_dense',

@@ -4,9 +4,9 @@ def main():
     """
     Runs the main training script for all configurations and a range of seeds.
     """
-    for seed in range(1, 5):
+    for seed in range(0, 5):
         print(f"--- Running pose estimate training with seed: {seed} ---")
-        command = ['python', '-m', 'rgb.main', '--seed', str(seed)]
+        command = ['python', '-m', 'pose.main', '--seed', str(seed)]
         
         try:
             subprocess.run(command, check=True)

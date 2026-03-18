@@ -149,7 +149,7 @@ if __name__ == '__main__':
     )
 
     # Generate unique run name based on env and timestamp
-    run_name = f'pose-{env_id}-{int(time())}-{args.seed}'
+    run_name = f'control-{env_id}-{int(time())}-{args.seed}'
     # Set up directory for video outputs
     render_output_dir = f'./runs/{run_name}/videos'
     writer = SummaryWriter(f'runs/{run_name}')
