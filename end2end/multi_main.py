@@ -6,7 +6,7 @@ def main():
     """
     for seed in range(1, 5):
         print(f"--- Running end-to-end training with seed: {seed} ---")
-        command = ['python', '-m', 'rgb.main', '--seed', str(seed)]
+        command = ['python', '-m', 'e2e.main', '--seed', str(seed)]
         
         try:
             subprocess.run(command, check=True)
