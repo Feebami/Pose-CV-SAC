@@ -5,6 +5,10 @@ This project compares two ways of solving ManiSkill’s `PickCube-v1` task with 
 1. End-to-end learning from RGB observations.
 2. A hybrid approach that predicts the cube position from RGB once at the start of the episode and feeds that estimate into a state-based SAC policy.
 
+| End-to-End RGB SAC (15/16 Success) | Position-Estimator + State SAC (9/16 Success) |
+|:---:|:---:|
+| ![End-to-End Eval](assets/e2e.gif) | ![Estimator Eval](assets/pose.gif) |
+
 The main question was simple: is it better to let the policy learn directly from pixels, or to compress vision into a small, task-relevant state estimate first?
 
 ## Key findings
