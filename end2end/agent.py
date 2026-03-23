@@ -1,7 +1,10 @@
-# Core PyTorch modules for neural networks
+import gymnasium as gym
+import mani_skill.envs
+from mani_skill.utils import sapien_utils
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision.transforms import v2
 
 # Set device to GPU if available, otherwise CPU
@@ -9,17 +12,41 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # Optimize for high precision matrix multiplications
 torch.set_float32_matmul_precision('high')
 
+class EarlyStopping:
+    def __init__(self, patience=5, min_delta=0.0):
+        """
+        Args:
+            patience (int): # of epochs to wait after last improvement.
+            min_delta (float): Minimum improvement in monitored metric.
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best = float("inf")   # for loss; use -inf for accuracy
+        self.wait = 0
+        self.stopped_epoch = None
+
+    def step(self, current):
+        # current is the latest val_loss (or metric)
+        improved = current < (self.best - self.min_delta)
+        if improved:
+            self.best = current
+            self.wait = 0
+        else:
+            self.wait += 1
+            if self.wait >= self.patience:
+                return True  # signal to stop
+        return False
+
 # Single convolution block
 class SingleConv(nn.Sequential):
     # Initialize with input/output channels and kernel size
-    def __init__(self, in_channels, out_channels, kernel_size):
-        padding = kernel_size // 2
+    def __init__(self, in_channels, out_channels):
         layers = [
             nn.Conv2d(
                 in_channels, 
                 out_channels, 
-                kernel_size=kernel_size, 
-                padding=padding
+                kernel_size=3, 
+                padding=1,
             ), 
             nn.ReLU(True)
         ]
@@ -42,22 +69,15 @@ class Encoder(nn.Module):
         conv = SingleConv
         # Input convolutional block followed by pooling
         self.input_block = nn.Sequential(
-            conv(3, channels[0], kernel_size=5),
-            nn.MaxPool2d(2)
+            conv(3, channels[0]),
+            nn.AvgPool2d(2)
         )
 
         # Backbone: series of conv blocks and poolings
         self.backbone = nn.ModuleList()
         for i in range(len(channels) - 1):
-            self.backbone.append(conv(
-                channels[i], 
-                channels[i+1], 
-                kernel_size=config.kernel_size
-            ))
-            self.backbone.append(nn.MaxPool2d(2))
-
-        # Pooling layer
-        self.pool = nn.AdaptiveAvgPool2d(1)
+            self.backbone.append(conv(channels[i], channels[i+1]))
+            self.backbone.append(nn.AvgPool2d(2))
 
         # Full encoder sequence
         self.encoder = nn.Sequential(
@@ -65,10 +85,57 @@ class Encoder(nn.Module):
             self.input_block,
             *self.backbone,
             nn.Conv2d(channels[-1], channels[-1], kernel_size=1), nn.ReLU(True),
-            self.pool,
+            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(channels[-1], config.encoding_dim)
+            nn.LayerNorm(channels[-1]),
+            nn.Linear(channels[-1], config.encoding_dim, bias=False),
         )
+    
+    # Pretrain the encoder to estimate the cube position
+    def pretrain(self, config):
+        print("Pretraining encoder to estimate cube position...")
+        head = nn.Sequential(
+            nn.LayerNorm(config.encoding_dim),
+            nn.ReLU(True),
+            nn.Linear(config.encoding_dim, 3)  # Predict 3D position
+        )
+        self.to(device)
+        head.to(device)
+        self.train()
+        head.train()
+        env = gym.make(
+            config.env_id, 
+            num_envs=config.estimator_batch_size, 
+            obs_mode='state_dict+rgb', 
+            control_mode='pd_ee_delta_pose', 
+            reward_mode='normalized_dense',
+            sensor_configs={
+                'width': config.resolution, 
+                'height': config.resolution,
+                'pose': sapien_utils.look_at(eye=config.camera_position, target=[-0.1, 0, 0.1])
+            }
+        )
+        optimizer = torch.optim.AdamW(list(self.parameters()) + list(head.parameters()), lr=3e-4)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
+        early_stopping = EarlyStopping(patience=100, min_delta=1e-4)
+        loss_val = float('inf')
+        while not early_stopping.step(loss_val):
+            obs, _ = env.reset()
+            rgb = obs['sensor_data']['base_camera']['rgb']
+            target = obs['extra']['obj_pose'][..., :3]
+            encoding = self(rgb)
+            pred = head(encoding)
+            loss = F.mse_loss(pred, target)
+            loss_val = loss.item()
+            print(f"Position Loss: {loss_val:.6f}", end='\r')
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step(loss)
+        print(f"\nPretraining complete. Final loss: {loss_val:.6f}")
+        self.zero_grad()
+        self.eval()
+        env.close()
 
     # Forward pass: transform and encode RGB input
     def forward(self, rgb):

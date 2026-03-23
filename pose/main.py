@@ -59,7 +59,7 @@ if __name__ == '__main__':
     num_envs = config.num_envs
     buffer_size = config.buffer_size
     env_id = config.env_id
-    global_steps = config.global_steps
+    global_steps = 512_000
     batch_size = config.batch_size
     utd = config.utd
     resolution = config.resolution
@@ -149,7 +149,7 @@ if __name__ == '__main__':
     )
 
     # Generate unique run name based on env and timestamp
-    run_name = f'control-{env_id}-{int(time())}-{args.seed}'
+    run_name = f'pose-{env_id}-{int(time())}-{args.seed}'
     # Set up directory for video outputs
     render_output_dir = f'./runs/{run_name}/videos'
     writer = SummaryWriter(f'runs/{run_name}')
@@ -214,6 +214,10 @@ if __name__ == '__main__':
     # Sync target networks with initial Q-network states
     q1_target.load_state_dict(q1.state_dict())
     q2_target.load_state_dict(q2.state_dict())
+    q1_target.eval()
+    q2_target.eval()
+    q1_target.requires_grad_(False)
+    q2_target.requires_grad_(False)
 
     # Compile models for optimized performance
     if device == 'cuda':

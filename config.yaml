@@ -3,13 +3,13 @@ num_envs: 16
 # ManiSkill environment id
 env_id: 'PickCube-v1'
 # RGB observation resolution
-resolution: 128
+resolution: 64
 # Camera position
 camera_position: [0.3, 0, 0.3]
 # Maximum stored experiences in the replay buffer
-buffer_size: 102_400
+buffer_size: 128_000
 # Buffer storage device
-buffer_device: 'cuda'
+buffer_device: 'cpu'
 # Priority buffer alpha
 buffer_alpha: 0.6
 # Total steps across all environments
@@ -34,17 +34,17 @@ utd: 0.5
 pose: False
 # Estimator training batch size
 estimator_batch_size: 256
+# Whether to pretrain the encoder
+pretrain_encoder: False
 
 ########## Architecture ##########
 # Linear layer sizes of MLP for actor and critic
-mlp_layers: [384, 384, 384]
+mlp_layers: [256, 256, 256]
 # Blocks in MLP for actor and critic
 mlp_blocks: 1
 # Channel multiplier for rgbd observation encoding CNN
-channel_multiplier: 8
-# CNN kernel size
-kernel_size: 3
+channel_multiplier: 6
 # Max channel size of CNN
 max_channels: 128
 # Final encoding dimension of RGBD observation encoder
-encoding_dim: 256
+encoding_dim: 128

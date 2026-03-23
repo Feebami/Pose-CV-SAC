@@ -43,6 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='config.yaml',
                         help='Path to the config YAML file.')
     parser.add_argument('--seed', type=int, default=0, help='Random seed.')
+    parser.add_argument('--pretrain', action='store_true', help='Whether to pretrain the encoder.')
     args = parser.parse_args()
 
     # Set seed for reproducibility
@@ -59,7 +60,7 @@ if __name__ == '__main__':
     num_envs = config.num_envs
     buffer_size = config.buffer_size
     env_id = config.env_id
-    global_steps = config.global_steps
+    global_steps = 256_000
     batch_size = config.batch_size
     utd = config.utd
     resolution = config.resolution
@@ -140,8 +141,9 @@ if __name__ == '__main__':
         f'{(len(buffer)/fill_time):.2f} steps/second'
     )
 
+    pt_string = 'pt' if args.pretrain else ''
     # Generate unique run name based on env and timestamp
-    run_name = f'e2e-{env_id}-{int(time())}-{args.seed}'
+    run_name = f'{pt_string}e2e-{env_id}-{int(time())}-{args.seed}'
     # Set up directory for video outputs
     render_output_dir = f'./runs/{run_name}/videos'
     writer = SummaryWriter(f'runs/{run_name}')
@@ -203,17 +205,30 @@ if __name__ == '__main__':
     q2 = SoftQ(env, state_dim, config).to(device)
     q1_target = SoftQ(env, state_dim, config).to(device)
     q2_target = SoftQ(env, state_dim, config).to(device)
-    # Sync target networks with initial Q-network states
+
+
+    if args.pretrain:
+        actor.encoder.pretrain(config)
+        q1.encoder.load_state_dict(actor.encoder.state_dict())
+        q2.encoder.load_state_dict(actor.encoder.state_dict())
+        for m in [actor.encoder, q1.encoder, q2.encoder]:
+            m.requires_grad_(False)
+
     q1_target.load_state_dict(q1.state_dict())
     q2_target.load_state_dict(q2.state_dict())
+    q1_target.eval()
+    q2_target.eval()
+    q1_target.requires_grad_(False)
+    q2_target.requires_grad_(False)
 
     # Compile models for optimized performance
-    if device == 'cuda':
-        actor = torch.compile(actor, mode='default')
-        q1 = torch.compile(q1, mode='default')
-        q2 = torch.compile(q2, mode='default')
-        q1_target = torch.compile(q1_target, mode='default')
-        q2_target = torch.compile(q2_target, mode='default')
+    if device == 'cuda' and not args.pretrain:
+        print("Compiling models for optimized performance...")
+        actor.compile(mode='default')
+        q1.compile(mode='default')
+        q2.compile(mode='default')
+        q1_target.compile(mode='default')
+        q2_target.compile(mode='default')
         
     # Initialize SAC trainer
     trainer = SACTrainer(
@@ -239,6 +254,18 @@ if __name__ == '__main__':
     pbar = trange(episodes)
     pbar.set_description(run_name)
     for episode in pbar:
+        # Unfreeze encoder parameters after 3 episodes
+        if episode == 3 and args.pretrain:
+            print(f"--- Unfreezing encoder parameters ---")
+            for m in [actor.encoder, q1.encoder, q2.encoder]:
+                m.requires_grad_(True)
+            # Re-compile models with unfrozen encoders for optimized training
+            print("Re-compiling models with unfrozen encoders...")
+            actor.compile(mode='default')
+            q1.compile(mode='default')
+            q2.compile(mode='default')
+            q1_target.compile(mode='default')
+            q2_target.compile(mode='default')
         # Set models to training mode
         actor.train()
         q1.train()

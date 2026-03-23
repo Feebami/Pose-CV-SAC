@@ -56,18 +56,16 @@ class EarlyStopping:
                 return True  # signal to stop
         return False
 
-
 # Single convolution block
 class SingleConv(nn.Sequential):
     # Initialize with input/output channels and kernel size
-    def __init__(self, in_channels, out_channels, kernel_size):
-        padding = kernel_size // 2
+    def __init__(self, in_channels, out_channels):
         layers = [
             nn.Conv2d(
                 in_channels, 
                 out_channels, 
-                kernel_size=kernel_size, 
-                padding=padding,
+                kernel_size=3, 
+                padding=1,
                 bias=False
             ), 
             nn.BatchNorm2d(out_channels),
@@ -80,7 +78,6 @@ class PoseEstimator(nn.Module):
     # Initialize with config for channels, conv type, etc.
     def __init__(self, config, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.config = config
         _channels = [4, 8, 16, 32]  # Base channel progression
         channels = [min(int(c * config.channel_multiplier), config.max_channels) 
                     for c in _channels]
@@ -94,22 +91,15 @@ class PoseEstimator(nn.Module):
         conv = SingleConv
         # Input convolutional block followed by pooling
         self.input_block = nn.Sequential(
-            conv(3, channels[0], kernel_size=5),
-            nn.MaxPool2d(2)
+            conv(3, channels[0]),
+            nn.AvgPool2d(2)
         )
 
         # Backbone: series of conv blocks and poolings
         self.backbone = nn.ModuleList()
         for i in range(len(channels) - 1):
-            self.backbone.append(conv(
-                channels[i], 
-                channels[i+1], 
-                kernel_size=config.kernel_size
-            ))
-            self.backbone.append(nn.MaxPool2d(2))
-
-        # Pooling layer
-        self.pool = nn.AdaptiveAvgPool2d(1)
+            self.backbone.append(conv(channels[i], channels[i+1]))
+            self.backbone.append(nn.AvgPool2d(2))
 
         # Full estimator sequence
         self.estimator = nn.Sequential(
@@ -117,56 +107,69 @@ class PoseEstimator(nn.Module):
             self.input_block,
             *self.backbone,
             nn.Conv2d(channels[-1], channels[-1], kernel_size=1), nn.ReLU(True),
-            self.pool,
+            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(channels[-1], config.encoding_dim), nn.ReLU(True),
-            nn.LayerNorm(config.encoding_dim),
-            nn.Linear(config.encoding_dim, output_channels, bias=False)
+            nn.LayerNorm(channels[-1]),
+            nn.Linear(channels[-1], config.encoding_dim, bias=False), 
+            nn.LayerNorm(config.encoding_dim), nn.ReLU(True),
+            nn.Linear(config.encoding_dim, output_channels)
         )
-        self._train_estimator()
+        self._train_estimator(config)
 
-    def _train_estimator(self):
+    def _train_estimator(self, config):
         print("Training Pose Estimator...")
         self.to(device)
         self.train()
         env = gym.make(
-            self.config.env_id, 
-            num_envs=self.config.estimator_batch_size, 
+            config.env_id, 
+            num_envs=config.estimator_batch_size, 
             obs_mode='state_dict+rgb', 
             control_mode='pd_ee_delta_pose', 
             reward_mode='normalized_dense',
             sensor_configs={
-                'width': self.config.resolution, 
-                'height': self.config.resolution,
-                'pose': sapien_utils.look_at(eye=self.config.camera_position, target=[-0.1, 0, 0.1])
+                'width': config.resolution, 
+                'height': config.resolution,
+                'pose': sapien_utils.look_at(eye=config.camera_position, target=[-0.1, 0, 0.1])
             }
         )
         optimizer = torch.optim.AdamW(self.parameters(), lr=3e-4)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
         early_stopping = EarlyStopping(patience=100, min_delta=1e-4)
-        loss = float('inf')
-        while not early_stopping.step(loss):
+        loss_val = float('inf')
+        while not early_stopping.step(loss_val):
             obs, _ = env.reset()
             rgb = obs['sensor_data']['base_camera']['rgb']
-            target = obs['extra']['obj_pose'] if self.config.pose else obs['extra']['obj_pose'][..., :3]
+            target = obs['extra']['obj_pose'] if config.pose else obs['extra']['obj_pose'][..., :3]
             pred = self(rgb)
-            if self.config.pose:
+            if config.pose:
                 pos_loss, rot_loss = pose_loss(pred, target)
                 loss = pos_loss + 0.1 * rot_loss
+                loss_val = loss.item()
                 print(f"Position Loss: {pos_loss.item():.6f}, Rotation Loss: {rot_loss.item():.6f}", end='\r')
             else:
                 loss = F.mse_loss(pred, target)
-                print(f"Position Loss: {loss.item():.6f}", end='\r')
+                loss_val = loss.item()
+                print(f"Position Loss: {loss_val:.6f}", end='\r')
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step(loss)
-        env.close()
         self.eval()
         # Freeze estimator parameters after training
         for param in self.parameters():
             param.requires_grad = False
-        print(f"\nFinal Estimator Loss: {loss.item():.6f}")
+        obs, _ = env.reset()
+        rgb = obs['sensor_data']['base_camera']['rgb']
+        target = obs['extra']['obj_pose'] if config.pose else obs['extra']['obj_pose'][..., :3]
+        with torch.no_grad():
+            pred = self(rgb)
+            if config.pose:
+                pos_loss, rot_loss = pose_loss(pred, target)
+                print(f"\nFinal Position Loss: {pos_loss.item():.6f}, Final Rotation Loss: {rot_loss.item():.6f}")
+            else:
+                loss = F.mse_loss(pred, target)
+                print(f"\nFinal Estimator Loss: {loss.item():.6f}")
+        env.close()
 
     # Forward pass: transform and encode RGB input
     def forward(self, rgb):

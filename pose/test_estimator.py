@@ -7,11 +7,10 @@ from .agent import PoseEstimator
 def test_estimator():
     config = {
         'env_id': 'PickCube-v1',
-        'resolution': 128,
-        'channel_multiplier': 8,
+        'resolution': 64,
+        'channel_multiplier': 6,
         'max_channels': 128,
-        'kernel_size': 3,
-        'encoding_dim': 256,
+        'encoding_dim': 128,
         'pose': False,
         'camera_position': [0.3, 0, 0.3],
         'estimator_batch_size': 256,
